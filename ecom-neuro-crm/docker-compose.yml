@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: ecom-neuro-db
+    environment:
+      POSTGRES_USER: ecom_user
+      POSTGRES_PASSWORD: ecom_pass_change_in_production
+      POSTGRES_DB: ecom_neuro_crm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecom_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Celery
+  redis:
+    image: redis:7-alpine
+    container_name: ecom-neuro-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ecom-neuro-backend
+    environment:
+      DATABASE_URL: postgresql://ecom_user:ecom_pass_change_in_production@postgres:5432/ecom_neuro_crm
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_WHATSAPP_NUMBER: ${TWILIO_WHATSAPP_NUMBER}
+      SHOPIFY_API_KEY: ${SHOPIFY_API_KEY}
+      SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ecom-neuro-celery
+    environment:
+      DATABASE_URL: postgresql://ecom_user:ecom_pass_change_in_production@postgres:5432/ecom_neuro_crm
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_WHATSAPP_NUMBER: ${TWILIO_WHATSAPP_NUMBER}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend/app:/app/app
+    command: celery -A app.core.celery_app worker --loglevel=info
+
+  # Celery Beat (Scheduler for periodic tasks)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ecom-neuro-celery-beat
+    environment:
+      DATABASE_URL: postgresql://ecom_user:ecom_pass_change_in_production@postgres:5432/ecom_neuro_crm
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend/app:/app/app
+    command: celery -A app.core.celery_app beat --loglevel=info
+
+volumes:
+  postgres_data:
