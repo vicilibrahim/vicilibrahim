@@ -1,6 +1,26 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Master Database (for Tenant Service)
+  postgres-master:
+    image: postgres:15-alpine
+    container_name: commercehub-postgres-master
+    environment:
+      POSTGRES_DB: master_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5430:5432"
+    volumes:
+      - master-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
   # PostgreSQL for Identity Service
   postgres-identity:
     image: postgres:15-alpine
@@ -199,7 +219,48 @@ services:
       - commercehub
     restart: unless-stopped
 
+  # Tenant Service
+  tenant-service:
+    build:
+      context: ../../services/tenant-service
+      dockerfile: Dockerfile
+    container_name: commercehub-tenant-service
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      SERVICE_NAME: tenant-service
+      DATABASE_HOST: postgres-master
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: master_db
+      DATABASE_SSL: "false"
+      JWT_SECRET: dev-secret-change-in-production
+      JWT_EXPIRES_IN: 1h
+      LOG_LEVEL: info
+      BCRYPT_SALT_ROUNDS: 10
+      TENANT_DB_HOST: postgres-identity
+      TENANT_DB_PORT: 5432
+      TENANT_DB_USER: postgres
+      TENANT_DB_PASSWORD: postgres
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - commercehub
+    restart: unless-stopped
+
 volumes:
+  master-db:
+    driver: local
   identity-db:
     driver: local
   inventory-db:
