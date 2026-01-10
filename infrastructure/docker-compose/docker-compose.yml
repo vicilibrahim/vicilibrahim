@@ -1,0 +1,222 @@
+version: '3.8'
+
+services:
+  # PostgreSQL for Identity Service
+  postgres-identity:
+    image: postgres:15-alpine
+    container_name: commercehub-postgres-identity
+    environment:
+      POSTGRES_DB: identity_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - identity-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
+  # PostgreSQL for Inventory Service
+  postgres-inventory:
+    image: postgres:15-alpine
+    container_name: commercehub-postgres-inventory
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - inventory-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
+  # PostgreSQL for Order Service
+  postgres-order:
+    image: postgres:15-alpine
+    container_name: commercehub-postgres-order
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - order-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
+  # PostgreSQL for Channel Service
+  postgres-channel:
+    image: postgres:15-alpine
+    container_name: commercehub-postgres-channel
+    environment:
+      POSTGRES_DB: channel_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - channel-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
+  # MongoDB for Product Service
+  mongodb:
+    image: mongo:7
+    container_name: commercehub-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo
+      MONGO_INITDB_ROOT_PASSWORD: mongo
+    volumes:
+      - mongodb:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: commercehub-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
+  # RabbitMQ for event messaging
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: commercehub-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbitmq
+      RABBITMQ_DEFAULT_PASS: rabbitmq
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
+  # Elasticsearch for product search
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: commercehub-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commercehub
+
+  # Identity Service
+  identity-service:
+    build:
+      context: ../../services/identity-service
+      dockerfile: Dockerfile
+    container_name: commercehub-identity-service
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      SERVICE_NAME: identity-service
+      DATABASE_HOST: postgres-identity
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: identity_db
+      DATABASE_SSL: "false"
+      JWT_SECRET: dev-secret-change-in-production
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-in-production
+      JWT_REFRESH_EXPIRES_IN: 7d
+      RABBITMQ_URL: amqp://rabbitmq:rabbitmq@rabbitmq:5672
+      RABBITMQ_EXCHANGE: commercehub_events
+      RABBITMQ_QUEUE: identity_service_queue
+      LOG_LEVEL: info
+      BCRYPT_SALT_ROUNDS: 10
+    depends_on:
+      postgres-identity:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - commercehub
+    restart: unless-stopped
+
+volumes:
+  identity-db:
+    driver: local
+  inventory-db:
+    driver: local
+  order-db:
+    driver: local
+  channel-db:
+    driver: local
+  mongodb:
+    driver: local
+  redis:
+    driver: local
+  rabbitmq:
+    driver: local
+  elasticsearch:
+    driver: local
+
+networks:
+  commercehub:
+    driver: bridge

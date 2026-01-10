@@ -1,0 +1,32 @@
+{
+  "name": "commercehub-microservices",
+  "version": "1.0.0",
+  "description": "E-Commerce Management Platform with Microservices Architecture",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "docker-compose -f infrastructure/docker-compose/docker-compose.yml up",
+    "dev:build": "docker-compose -f infrastructure/docker-compose/docker-compose.yml up --build",
+    "down": "docker-compose -f infrastructure/docker-compose/docker-compose.yml down",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "format": "prettier --write \"**/*.{ts,js,json,md}\""
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.45.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.1.6"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
